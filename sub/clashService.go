@@ -73,18 +73,9 @@ func (s *ClashService) GetClash(subId string) (*string, []string, error) {
 		return nil, nil, err
 	}
 
-	links := s.LinkService.GetLinks(&client.Links, "external", "")
-	tagNumEnable := 0
-	if len(links) > 1 {
-		tagNumEnable = 1
-	}
-	for index, link := range links {
-		json, tag, err := util.GetOutbound(link, (index+1)*tagNumEnable)
-		if err == nil && len(tag) > 0 {
-			*outbounds = append(*outbounds, *json)
-			*outTags = append(*outTags, tag)
-		}
-	}
+	extOutbounds, extTags := s.LinkService.GetExternalOutbounds(&client.Links)
+	*outbounds = append(*outbounds, extOutbounds...)
+	*outTags = append(*outTags, extTags...)
 
 	basicConfig, err := s.getClashConfig()
 	if err != nil || len(basicConfig) == 0 {
@@ -385,18 +376,9 @@ func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, b
 		proxyTags = append(proxyTags, obMap["tag"].(string))
 	}
 
-	var proxyGroups []map[string]interface{}
-	err := yaml.Unmarshal([]byte(ProxyGroups), &proxyGroups)
-	if err != nil {
-		logger.Error(err.Error())
-	}
-
-	proxyGroups[1]["proxies"] = proxyTags
-	proxyGroups[0]["proxies"] = append([]string{proxyGroups[1]["name"].(string)}, proxyTags...)
-
 	// Merge proxies and proxy groups if exist
 	var output map[string]interface{}
-	err = yaml.Unmarshal([]byte(basicConfig), &output)
+	err := yaml.Unmarshal([]byte(basicConfig), &output)
 	if err != nil {
 		logger.Error(err.Error())
 	}
@@ -407,9 +389,13 @@ func (s *ClashService) ConvertToClashMeta(outbounds *[]map[string]interface{}, b
 		output["proxies"] = proxies
 	}
 
-	if pg, ok := output["proxy-groups"].([]interface{}); ok {
-		output["proxy-groups"] = append(pg, proxyGroups[0], proxyGroups[1])
-	} else {
+	if pg, ok := output["proxy-groups"].([]interface{}); !ok || len(pg) == 0 {
+		var proxyGroups []map[string]interface{}
+		if err := yaml.Unmarshal([]byte(ProxyGroups), &proxyGroups); err != nil {
+			logger.Error(err.Error())
+		}
+		proxyGroups[1]["proxies"] = proxyTags
+		proxyGroups[0]["proxies"] = append([]string{proxyGroups[1]["name"].(string)}, proxyTags...)
 		output["proxy-groups"] = proxyGroups
 	}
 
